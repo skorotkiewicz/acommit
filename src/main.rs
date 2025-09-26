@@ -173,6 +173,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 fn parse_args() -> Result<ModelProvider, Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     
+    // Check for help flags
+    for arg in &args[1..] {
+        if arg == "--help" || arg == "-h" {
+            print_usage();
+            std::process::exit(0);
+        }
+    }
+    
     let mut gemini_api_key = None;
     let mut ollama_url = None;
     let mut model_name = None;
