@@ -610,5 +610,5 @@ fn print_usage() {
     println!("  GEMINI_API_KEY              Used as fallback if no provider specified");
     println!("  OPENAI_API_KEY              Used for OpenAI-compatible APIs when --openai-key not provided");
     println!();
-    println!("For example configuration format, use: acommit --example-config");
+    println!("For example configuration, use: acommit --example-config");
 }
