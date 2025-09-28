@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 enum ModelProvider {
     Gemini { api_key: String, model: String },
     Ollama { base_url: String, model: String },
+    OpenAI { base_url: String, api_key: Option<String>, model: String },
 }
 
 // Gemini API structures
@@ -56,7 +57,37 @@ struct OllamaRequest {
 #[derive(Deserialize)]
 struct OllamaResponse {
     response: Option<String>,
-    done: Option<bool>,
+    // done: Option<bool>,
+}
+
+// OpenAI API structures
+#[derive(Serialize)]
+struct OpenAIRequest {
+    model: String,
+    messages: Vec<OpenAIMessage>,
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
+}
+
+#[derive(Serialize)]
+struct OpenAIMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct OpenAIResponse {
+    choices: Option<Vec<OpenAIChoice>>,
+}
+
+#[derive(Deserialize)]
+struct OpenAIChoice {
+    message: Option<OpenAIResponseMessage>,
+}
+
+#[derive(Deserialize)]
+struct OpenAIResponseMessage {
+    content: Option<String>,
 }
 
 #[tokio::main]
@@ -74,11 +105,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     match &config {
         ModelProvider::Gemini { model, .. } => println!("🧠 Using Gemini model: {}", model),
         ModelProvider::Ollama { base_url, model } => println!("🦙 Using Ollama model: {} at {}", model, base_url),
+        ModelProvider::OpenAI { base_url, model, .. } => println!("🤖 Using OpenAI model: {} at {}", model, base_url),
     }
 
     println!("🔍 Checking git status...");
     
-    // Sprawdź czy jesteśmy w repozytorium git
+    // Check if we're in a git repository
     let status = Command::new("git")
         .args(&["status", "--porcelain"])
         .output()?;
@@ -98,14 +130,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("  {}", line);
     }
 
-    // Pobierz diff dla AI
+    // Get diff for AI
     let diff_output = Command::new("git")
         .args(&["diff", "--cached", "--name-status"])
         .output()?;
 
     let mut diff_info = String::from_utf8_lossy(&diff_output.stdout).to_string();
     
-    // Jeśli nie ma staged changes, pokaż wszystkie zmiany
+    // If there are no staged changes, show all changes
     if diff_info.trim().is_empty() {
         let all_diff = Command::new("git")
             .args(&["diff", "--name-status"])
@@ -115,13 +147,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("🤖 Generating commit message with AI...");
     
-    // Stwórz prompt dla AI
+    // Create prompt for AI
     let prompt = format!(
         "Generate a concise, clear git commit message in English based on these file changes:\n\n{}\n\nRules:\n- Use conventional commits format (feat:, fix:, docs:, etc.)\n- Be specific but concise\n- Maximum 50 characters for the title\n- Only return the commit message, nothing else",
         diff_info.trim()
     );
 
-    // Wywołaj odpowiednie API
+    // Call the appropriate API
     let commit_message = match config {
         ModelProvider::Gemini { api_key, model } => {
             call_gemini_api(&api_key, &model, &prompt).await?
@@ -129,11 +161,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ModelProvider::Ollama { base_url, model } => {
             call_ollama_api(&base_url, &model, &prompt).await?
         },
+        ModelProvider::OpenAI { base_url, api_key, model } => {
+            call_openai_api(&base_url, api_key.as_ref(), &model, &prompt).await?
+        },
     };
     
     println!("📋 Generated commit message: {}", commit_message);
     
-    // Zapytaj użytkownika o potwierdzenie
+    // Ask user for confirmation
     print!("🤔 Use this commit message? (y/N): ");
     io::stdout().flush()?;
     
@@ -145,7 +180,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Wykonaj git add -A
+    // Execute git add -A
     println!("➕ Adding all changes...");
     let add_status = Command::new("git")
         .args(&["add", "-A"])
@@ -155,7 +190,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Failed to add changes".into());
     }
 
-    // Wykonaj commit
+    // Execute commit
     println!("💾 Creating commit...");
     let commit_status = Command::new("git")
         .args(&["commit", "-m", &commit_message])
@@ -183,6 +218,8 @@ fn parse_args() -> Result<ModelProvider, Box<dyn std::error::Error>> {
     
     let mut gemini_api_key = None;
     let mut ollama_url = None;
+    let mut openai_url = None;
+    let mut openai_api_key = None;
     let mut model_name = None;
     
     // Parse arguments
@@ -191,6 +228,8 @@ fn parse_args() -> Result<ModelProvider, Box<dyn std::error::Error>> {
             match key {
                 "--gemini-key" | "-gk" => gemini_api_key = Some(value.to_string()),
                 "--ollama-url" | "-ou" => ollama_url = Some(value.to_string()),
+                "--openai" => openai_url = Some(value.to_string()),
+                "--openai-key" | "-ok" => openai_api_key = Some(value.to_string()),
                 "--model" | "-m" => model_name = Some(value.to_string()),
                 _ => return Err(format!("Unknown argument: {}", key).into()),
             }
@@ -207,6 +246,16 @@ fn parse_args() -> Result<ModelProvider, Box<dyn std::error::Error>> {
                         ollama_url = Some(next_arg.clone());
                     }
                 },
+                "--openai" => {
+                    if let Some(next_arg) = args.iter().skip_while(|a| *a != arg).nth(1) {
+                        openai_url = Some(next_arg.clone());
+                    }
+                },
+                "--openai-key" | "-ok" => {
+                    if let Some(next_arg) = args.iter().skip_while(|a| *a != arg).nth(1) {
+                        openai_api_key = Some(next_arg.clone());
+                    }
+                },
                 "--model" | "-m" => {
                     if let Some(next_arg) = args.iter().skip_while(|a| *a != arg).nth(1) {
                         model_name = Some(next_arg.clone());
@@ -220,10 +269,21 @@ fn parse_args() -> Result<ModelProvider, Box<dyn std::error::Error>> {
     // Debug output
     eprintln!("Debug - gemini_api_key: {:?}", gemini_api_key);
     eprintln!("Debug - ollama_url: {:?}", ollama_url);
+    eprintln!("Debug - openai_url: {:?}", openai_url);
+    eprintln!("Debug - openai_api_key: {:?}", openai_api_key);
     eprintln!("Debug - model_name: {:?}", model_name);
     
     // Determine provider and configuration
-    if let Some(url) = ollama_url {
+    if let Some(url) = openai_url {
+        // OpenAI explicitly specified
+        let api_key = openai_api_key
+            .or_else(|| env::var("OPENAI_API_KEY").ok());
+        Ok(ModelProvider::OpenAI { 
+            base_url: url, 
+            api_key,
+            model: model_name.unwrap_or_else(|| "gpt-3.5-turbo".to_string())
+        })
+    } else if let Some(url) = ollama_url {
         // Ollama explicitly specified
         Ok(ModelProvider::Ollama { 
             base_url: url, 
@@ -292,7 +352,7 @@ async fn call_gemini_api(api_key: &str, model: &str, prompt: &str) -> Result<Str
         .trim()
         .to_string();
 
-    // Usuń zbędne białe znaki
+    // Remove unnecessary whitespace
     let clean_message = commit_message
         .split_whitespace()
         .collect::<Vec<&str>>()
@@ -331,7 +391,61 @@ async fn call_ollama_api(base_url: &str, model: &str, prompt: &str) -> Result<St
         .trim()
         .to_string();
 
-    // Usuń zbędne białe znaki i weź pierwszą linię (czasami Ollama zwraca więcej)
+    // Remove unnecessary whitespace and take the first line (sometimes Ollama returns more)
+    let clean_message = commit_message
+        .lines()
+        .next()
+        .unwrap_or("chore: update files")
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ");
+
+    Ok(clean_message)
+}
+
+async fn call_openai_api(base_url: &str, api_key: Option<&String>, model: &str, prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    
+    let request_body = OpenAIRequest {
+        model: model.to_string(),
+        messages: vec![OpenAIMessage {
+            role: "user".to_string(),
+            content: prompt.to_string(),
+        }],
+        max_tokens: Some(100),
+        temperature: Some(0.7),
+    };
+
+    let url = format!("{}/chat/completions", base_url);
+
+    let mut request = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .json(&request_body);
+
+    // Add Authorization header only if API key is provided
+    if let Some(key) = api_key {
+        request = request.header("Authorization", format!("Bearer {}", key));
+    }
+
+    let response = request.send().await?;
+
+    if !response.status().is_success() {
+        return Err(format!("OpenAI API request failed: {}", response.status()).into());
+    }
+
+    let data: OpenAIResponse = response.json().await?;
+    
+    let commit_message = data
+        .choices
+        .and_then(|choices| choices.into_iter().next())
+        .and_then(|choice| choice.message)
+        .and_then(|message| message.content)
+        .unwrap_or_else(|| "chore: update files".to_string())
+        .trim()
+        .to_string();
+
+    // Remove unnecessary whitespace and take the first line
     let clean_message = commit_message
         .lines()
         .next()
@@ -349,12 +463,20 @@ fn print_usage() {
     println!("OPTIONS:");
     println!("  --gemini-key, -gk <KEY>     Use Gemini API with provided key");
     println!("  --ollama-url, -ou <URL>     Use Ollama at specified URL");
+    println!("  --openai <URL>              Use OpenAI-compatible API at specified URL");
+    println!("  --openai-key, -ok <KEY>     API key for OpenAI-compatible API (optional)");
     println!("  --model, -m <MODEL>         Model name to use");
     println!();
     println!("Examples:");
     println!("  acommit # Use GEMINI_API_KEY env var or default Ollama");
     println!("  acommit --ollama-url http://localhost:11434       # Use local Ollama");
+    println!("  acommit --openai http://localhost:8080/v1 --model bitnet-model # Use OpenAI-compatible API");
+    println!("  acommit --openai http://api.openai.com/v1 --openai-key sk-xxx --model gpt-4 # Use OpenAI with API key");
     println!("  acommit --model llama3.2:3b                       # Specify model");
     println!("  acommit --gemini-key xyz --model gemini-2.5-flash # Use Gemini with specific key");
     println!("  acommit -ou http://server:11434 -m codellama:7b   # Remote Ollama with CodeLlama");
+    println!();
+    println!("Environment Variables:");
+    println!("  GEMINI_API_KEY              Used as fallback if no provider specified");
+    println!("  OPENAI_API_KEY              Used for OpenAI-compatible APIs when --openai-key not provided");
 }
