@@ -1,6 +1,7 @@
 use std::env;
 use std::process::Command;
 use std::io::{self, Write};
+use std::fs;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
@@ -8,6 +9,25 @@ enum ModelProvider {
     Gemini { api_key: String, model: String },
     Ollama { base_url: String, model: String },
     OpenAI { base_url: String, api_key: Option<String>, model: String },
+}
+
+#[derive(Debug, Deserialize)]
+struct ProviderConfig {
+    model: String,
+    #[serde(default)]
+    api_key: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Config {
+    default_provider: String,
+    #[serde(default)]
+    verbose: bool,
+    gemini: ProviderConfig,
+    ollama: ProviderConfig,
+    openai: ProviderConfig,
 }
 
 // Gemini API structures
@@ -205,6 +225,49 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn load_config(config_path: &str) -> Result<Config, Box<dyn std::error::Error>> {
+    let config_content = fs::read_to_string(config_path)?;
+    let config: Config = serde_json::from_str(&config_content)?;
+    Ok(config)
+}
+
+fn config_to_provider(config: &Config, provider: Option<&str>) -> Result<(ModelProvider, bool), Box<dyn std::error::Error>> {
+    let verbose = config.verbose;
+    let selected_provider = provider.unwrap_or(&config.default_provider);
+    
+    match selected_provider {
+        "gemini" => {
+            let api_key = config.gemini.api_key.clone()
+                .or_else(|| env::var("GEMINI_API_KEY").ok())
+                .ok_or("Gemini API key is required")?;
+            Ok((ModelProvider::Gemini {
+                api_key,
+                model: config.gemini.model.clone(),
+            }, verbose))
+        },
+        "ollama" => {
+            let base_url = config.ollama.url.clone()
+                .unwrap_or_else(|| "http://localhost:11434".to_string());
+            Ok((ModelProvider::Ollama {
+                base_url,
+                model: config.ollama.model.clone(),
+            }, verbose))
+        },
+        "openai" => {
+            let base_url = config.openai.url.clone()
+                .ok_or("OpenAI URL is required")?;
+            let api_key = config.openai.api_key.clone()
+                .or_else(|| env::var("OPENAI_API_KEY").ok());
+            Ok((ModelProvider::OpenAI {
+                base_url,
+                api_key,
+                model: config.openai.model.clone(),
+            }, verbose))
+        },
+        _ => Err(format!("Unknown provider: {}", selected_provider).into()),
+    }
+}
+
 fn parse_args() -> Result<(ModelProvider, bool), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     
@@ -214,6 +277,35 @@ fn parse_args() -> Result<(ModelProvider, bool), Box<dyn std::error::Error>> {
             print_usage();
             std::process::exit(0);
         }
+    }
+    
+    // Check for config file and provider selection
+    let mut config_path = None;
+    let mut selected_provider = None;
+    
+    for (i, arg) in args.iter().enumerate().skip(1) {
+        if arg == "--config" {
+            if let Some(path) = args.get(i + 1) {
+                config_path = Some(path.clone());
+            } else {
+                return Err("--config requires a path to config file".into());
+            }
+        } else if arg == "--provider" {
+            if let Some(provider) = args.get(i + 1) {
+                selected_provider = Some(provider.as_str());
+            } else {
+                return Err("--provider requires a provider name (gemini, ollama, openai)".into());
+            }
+        }
+    }
+    
+    // Load config from file or environment
+    if let Some(path) = config_path {
+        let config = load_config(&path)?;
+        return config_to_provider(&config, selected_provider);
+    } else if let Ok(path) = env::var("ACOMMIT_CONFIG") {
+        let config = load_config(&path)?;
+        return config_to_provider(&config, selected_provider);
     }
     
     let mut gemini_api_key = None;
@@ -466,6 +558,8 @@ fn print_usage() {
     println!("Usage: acommit [OPTIONS]");
     println!();
     println!("OPTIONS:");
+    println!("  --config <PATH>             Use configuration from JSON file");
+    println!("  --provider <PROVIDER>      Override default provider (gemini, ollama, openai)");
     println!("  --gemini-key, -gk <KEY>     Use Gemini API with provided key");
     println!("  --ollama-url, -ou <URL>     Use Ollama at specified URL");
     println!("  --openai <URL>              Use OpenAI-compatible API at specified URL");
@@ -474,7 +568,9 @@ fn print_usage() {
     println!("  --verbose                   Show debug information");
     println!();
     println!("Examples:");
-    println!("  acommit # Use GEMINI_API_KEY env var or default Ollama");
+    println!("  acommit --config acommit.json                    # Use config file with default provider");
+    println!("  acommit --config acommit.json --provider ollama  # Use config file with specific provider");
+    println!("  acommit # Use ACOMMIT_CONFIG env var or default Ollama");
     println!("  acommit --ollama-url http://localhost:11434       # Use local Ollama");
     println!("  acommit --openai http://localhost:8080/v1 --model bitnet-model # Use OpenAI-compatible API");
     println!("  acommit --openai http://api.openai.com/v1 --openai-key sk-xxx --model gpt-4 # Use OpenAI with API key");
@@ -484,6 +580,26 @@ fn print_usage() {
     println!("  acommit --verbose --openai http://localhost:8080/v1 # Show debug info");
     println!();
     println!("Environment Variables:");
+    println!("  ACOMMIT_CONFIG              Path to default config file");
     println!("  GEMINI_API_KEY              Used as fallback if no provider specified");
     println!("  OPENAI_API_KEY              Used for OpenAI-compatible APIs when --openai-key not provided");
+    println!();
+    println!("Config File Format (JSON):");
+    println!("  {{");
+    println!("    \"default_provider\": \"openai\",");
+    println!("    \"verbose\": true,");
+    println!("    \"gemini\": {{");
+    println!("      \"model\": \"gemini-2.5-flash-lite\",");
+    println!("      \"api_key\": \"your-gemini-key\"");
+    println!("    }},");
+    println!("    \"ollama\": {{");
+    println!("      \"model\": \"llama3.2:3b\",");
+    println!("      \"url\": \"http://localhost:11434\"");
+    println!("    }},");
+    println!("    \"openai\": {{");
+    println!("      \"model\": \"bitnet-model\",");
+    println!("      \"url\": \"http://localhost:7777/v1\",");
+    println!("      \"api_key\": \"your-openai-key\"");
+    println!("    }}");
+    println!("  }}");
 }
