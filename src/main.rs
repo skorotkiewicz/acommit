@@ -352,9 +352,9 @@ fn print_usage() {
     println!("  --model, -m <MODEL>         Model name to use");
     println!();
     println!("Examples:");
-    println!("  acommit                                           # Use GEMINI_API_KEY env var or default Ollama");
+    println!("  acommit # Use GEMINI_API_KEY env var or default Ollama");
     println!("  acommit --ollama-url http://localhost:11434       # Use local Ollama");
-    println!("  acommit --model llama3.2:3b                      # Specify model");
+    println!("  acommit --model llama3.2:3b                       # Specify model");
     println!("  acommit --gemini-key xyz --model gemini-2.5-flash # Use Gemini with specific key");
-    println!("  acommit -ou http://server:11434 -m codellama:7b  # Remote Ollama with CodeLlama");
+    println!("  acommit -ou http://server:11434 -m codellama:7b   # Remote Ollama with CodeLlama");
 }
