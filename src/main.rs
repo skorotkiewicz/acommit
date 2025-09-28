@@ -99,7 +99,7 @@ async fn main() {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let config = parse_args()?;
+    let (config, _verbose) = parse_args()?;
     
     // Debug info
     match &config {
@@ -205,7 +205,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn parse_args() -> Result<ModelProvider, Box<dyn std::error::Error>> {
+fn parse_args() -> Result<(ModelProvider, bool), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     
     // Check for help flags
@@ -221,6 +221,7 @@ fn parse_args() -> Result<ModelProvider, Box<dyn std::error::Error>> {
     let mut openai_url = None;
     let mut openai_api_key = None;
     let mut model_name = None;
+    let mut verbose = false;
     
     // Parse arguments
     for arg in args.iter().skip(1) {
@@ -231,6 +232,7 @@ fn parse_args() -> Result<ModelProvider, Box<dyn std::error::Error>> {
                 "--openai" => openai_url = Some(value.to_string()),
                 "--openai-key" | "-ok" => openai_api_key = Some(value.to_string()),
                 "--model" | "-m" => model_name = Some(value.to_string()),
+                "--verbose" => verbose = true,
                 _ => return Err(format!("Unknown argument: {}", key).into()),
             }
         } else {
@@ -261,53 +263,56 @@ fn parse_args() -> Result<ModelProvider, Box<dyn std::error::Error>> {
                         model_name = Some(next_arg.clone());
                     }
                 },
+                "--verbose" => verbose = true,
                 _ => {} // Skip unknown single arguments
             }
         }
     }
     
-    // Debug output
-    eprintln!("Debug - gemini_api_key: {:?}", gemini_api_key);
-    eprintln!("Debug - ollama_url: {:?}", ollama_url);
-    eprintln!("Debug - openai_url: {:?}", openai_url);
-    eprintln!("Debug - openai_api_key: {:?}", openai_api_key);
-    eprintln!("Debug - model_name: {:?}", model_name);
+    // Debug output (only if verbose)
+    if verbose {
+        eprintln!("Debug - gemini_api_key: {:?}", gemini_api_key);
+        eprintln!("Debug - ollama_url: {:?}", ollama_url);
+        eprintln!("Debug - openai_url: {:?}", openai_url);
+        eprintln!("Debug - openai_api_key: {:?}", openai_api_key);
+        eprintln!("Debug - model_name: {:?}", model_name);
+    }
     
     // Determine provider and configuration
     if let Some(url) = openai_url {
         // OpenAI explicitly specified
         let api_key = openai_api_key
             .or_else(|| env::var("OPENAI_API_KEY").ok());
-        Ok(ModelProvider::OpenAI { 
+        Ok((ModelProvider::OpenAI { 
             base_url: url, 
             api_key,
             model: model_name.unwrap_or_else(|| "gpt-3.5-turbo".to_string())
-        })
+        }, verbose))
     } else if let Some(url) = ollama_url {
         // Ollama explicitly specified
-        Ok(ModelProvider::Ollama { 
+        Ok((ModelProvider::Ollama { 
             base_url: url, 
             model: model_name.unwrap_or_else(|| "llama3.2:3b".to_string())
-        })
+        }, verbose))
     } else if let Some(key) = gemini_api_key {
         // Gemini key explicitly specified
-        Ok(ModelProvider::Gemini { 
+        Ok((ModelProvider::Gemini { 
             api_key: key, 
             model: model_name.unwrap_or_else(|| "gemini-2.5-flash-lite".to_string())
-        })
+        }, verbose))
     } else {
         // No explicit provider, check environment and defaults
         if let Ok(api_key) = env::var("GEMINI_API_KEY") {
-            Ok(ModelProvider::Gemini { 
+            Ok((ModelProvider::Gemini { 
                 api_key, 
                 model: model_name.unwrap_or_else(|| "gemini-2.5-flash-lite".to_string())
-            })
+            }, verbose))
         } else {
             // Default to Ollama
-            Ok(ModelProvider::Ollama { 
+            Ok((ModelProvider::Ollama { 
                 base_url: "http://localhost:11434".to_string(),
                 model: model_name.unwrap_or_else(|| "llama3.2:3b".to_string())
-            })
+            }, verbose))
         }
     }
 }
@@ -466,6 +471,7 @@ fn print_usage() {
     println!("  --openai <URL>              Use OpenAI-compatible API at specified URL");
     println!("  --openai-key, -ok <KEY>     API key for OpenAI-compatible API (optional)");
     println!("  --model, -m <MODEL>         Model name to use");
+    println!("  --verbose                   Show debug information");
     println!();
     println!("Examples:");
     println!("  acommit # Use GEMINI_API_KEY env var or default Ollama");
@@ -475,6 +481,7 @@ fn print_usage() {
     println!("  acommit --model llama3.2:3b                       # Specify model");
     println!("  acommit --gemini-key xyz --model gemini-2.5-flash # Use Gemini with specific key");
     println!("  acommit -ou http://server:11434 -m codellama:7b   # Remote Ollama with CodeLlama");
+    println!("  acommit --verbose --openai http://localhost:8080/v1 # Show debug info");
     println!();
     println!("Environment Variables:");
     println!("  GEMINI_API_KEY              Used as fallback if no provider specified");
