@@ -1,14 +1,17 @@
 # acommit
 
-A minimalist CLI tool that generates intelligent git commit messages using AI (Gemini or Ollama).
+A minimalist CLI tool that generates intelligent git commit messages using AI (Gemini, Ollama, or OpenAI-compatible APIs).
 
 ## Features
 
-- Automatically detects git changes
+- Multiple AI providers: Gemini, Ollama, OpenAI-compatible APIs
 - Generates conventional commit messages
-- Supports Gemini API and Ollama
+- Interactive setup with `--setup`
+- Auto-detects `acommit.json` in current directory
+- Flexible JSON configuration files
+- Smart defaults and fallbacks
 - Interactive confirmation before committing
-- Works with staged or unstaged changes
+- Verbose mode for debugging
 
 ## Installation
 
@@ -27,57 +30,116 @@ cargo build --release
 cargo install --git https://github.com/skorotkiewicz/acommit acommit
 ```
 
-## Usage
-
-### Basic Usage
+## Quick Start
 
 ```bash
-# Use default provider (GEMINI_API_KEY env var or Ollama at localhost:11434)
+# First time setup - generates acommit.json
+acommit --setup
+
+# Daily usage - auto-detects acommit.json
 acommit
 
-# Use Ollama locally
-acommit --ollama-url http://localhost:11434
-
-# Use Gemini with API key
-acommit --gemini-key YOUR_API_KEY
-
-# Specify model
-acommit --model llama3.2:3b
+# Use specific provider from config
+acommit --provider ollama
 ```
 
-### Options
+## Usage
 
+### Configuration Methods
+
+1. Interactive Setup (Recommended for beginners):
+   ```bash
+   acommit --setup
+   ```
+
+2. Auto-detection: Automatically finds `acommit.json` in current directory
+
+3. Manual Configuration: Use command-line flags
+
+4. Environment Variables: Set `ACOMMIT_CONFIG` for global config
+
+### Command Line Options
+
+- `--setup`: Interactive setup and generate `acommit.json`
+- `--config <PATH>`: Use specific configuration file
+- `--provider <PROVIDER>`: Override default provider (gemini, ollama, openai)
+- `--example-config`: Show example configuration format
+- `--verbose`: Show debug information
 - `--gemini-key, -gk <KEY>`: Use Gemini API with provided key
 - `--ollama-url, -ou <URL>`: Use Ollama at specified URL
+- `--openai <URL>`: Use OpenAI-compatible API at specified URL
+- `--openai-key, -ok <KEY>`: API key for OpenAI-compatible API (optional)
 - `--model, -m <MODEL>`: Model name to use
 - `--help, -h`: Show help
 
 ### Examples
 
 ```bash
-# Default (checks GEMINI_API_KEY env var, falls back to Ollama)
+# Interactive setup
+acommit --setup
+
+# Auto-detect local config
 acommit
 
-# Local Ollama with specific model
-acommit -ou http://localhost:11434 -m llama3.2:3b
+# Use specific config file
+acommit --config my-config.json
 
-# Gemini with custom model
-acommit -gk YOUR_API_KEY -m gemini-2.5-flash
+# Override provider from config
+acommit --provider ollama
 
-# Remote Ollama server
-acommit -ou http://server:11434 -m codellama:7b
+# Manual configuration (legacy)
+acommit --openai http://localhost:7777/v1 --model bitnet-model
+acommit --gemini-key YOUR_API_KEY --model gemini-2.5-flash
+acommit --ollama-url http://localhost:11434 --model llama3.2:3b
+
+# Show example config
+acommit --example-config
 ```
 
 ## Configuration
 
+### Configuration File Format
+
+The `acommit.json` configuration file supports all providers:
+
+```json
+{
+  "default_provider": "openai",
+  "verbose": false,
+  "gemini": {
+    "model": "gemini-2.5-flash-lite",
+    "api_key": "your-gemini-key"
+  },
+  "ollama": {
+    "model": "llama3.2:3b",
+    "url": "http://localhost:11434"
+  },
+  "openai": {
+    "model": "bitnet-model",
+    "url": "http://localhost:7777/v1",
+    "api_key": "your-openai-key"
+  }
+}
+```
+
+### Configuration Priority
+
+1. `--config <PATH>` (highest priority)
+2. `ACOMMIT_CONFIG` environment variable
+3. Local `acommit.json` (auto-detected)
+4. Default Ollama configuration (fallback)
+
 ### Environment Variables
 
-- `GEMINI_API_KEY`: Your Google Gemini API key (optional, will use Ollama if not set)
+- `ACOMMIT_CONFIG`: Path to default configuration file
+- `GEMINI_API_KEY`: Fallback Gemini API key
+- `OPENAI_API_KEY`: Fallback OpenAI API key
 
 ### Default Models
 
 - Gemini: `gemini-2.5-flash-lite`
 - Ollama: `llama3.2:3b`
+- OpenAI: `bitnet-model`
 
 ## Requirements
 
@@ -85,14 +147,70 @@ acommit -ou http://server:11434 -m codellama:7b
 - Git
 - For Gemini: API key from Google AI Studio
 - For Ollama: Running Ollama instance with compatible model
+- For OpenAI-compatible APIs: Compatible endpoint (API key optional)
 
 ## How It Works
 
-1. Checks git status for changes
-2. Gets diff of modified files
-3. Sends diff to AI for commit message generation
-4. Shows generated message and asks for confirmation
-5. Stages all changes and creates commit
+1. Configuration: Loads config from file, environment, or uses defaults
+2. Change Detection: Checks git status for staged/unstaged changes
+3. Diff Generation: Creates diff of modified files
+4. AI Processing: Sends diff to selected AI provider
+5. Message Generation: Creates conventional commit message
+6. User Confirmation: Shows generated message and asks for approval
+7. Commit Creation: Stages all changes and creates commit
+
+## Supported AI Providers
+
+### Gemini
+- API: Google Gemini API
+- Authentication: API key required
+- Models: `gemini-2.5-flash-lite`, `gemini-pro`, etc.
+
+### Ollama
+- API: Local Ollama instance
+- Authentication: None required
+- Models: Any Ollama model (`llama3.2:3b`, `codellama:7b`, etc.)
+
+### OpenAI-Compatible
+- API: OpenAI-compatible endpoints
+- Authentication: Optional API key
+- Models: Any compatible model (`gpt-4`, `bitnet-model`, etc.)
+
+## Development
+
+This project is an excellent example for learning Rust! It covers:
+
+- Error Handling: `Result<T, E>`, `?` operator
+- Pattern Matching: `match` expressions, `Option<T>`
+- Ownership & Borrowing: `String` vs `&str`, `clone()`
+- Structs & Enums: Complex data structures
+- Serde: JSON serialization/deserialization
+- Async/Await: HTTP requests with `reqwest`
+- CLI Tools: Command-line argument parsing
+- File I/O: Configuration file handling
+- Interactive CLI: User input with `dialoguer`
+
+### Building from Source
+
+```bash
+git clone https://github.com/skorotkiewicz/acommit
+cd acommit
+cargo build --release
+```
+
+### Running Tests
+
+```bash
+cargo test
+```
+
+## Contributing
+
+Contributions are welcome! This project is perfect for:
+- Learning Rust concepts
+- Adding new AI providers
+- Improving error handling
+- Adding new features
 
 ## License
 
