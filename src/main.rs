@@ -674,6 +674,25 @@ fn setup_config() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn print_example_config() {
+    println!("Examples:");
+    println!("  acommit --setup                                 # Interactive setup and generate acommit.json");
+    println!("  acommit --example-config                         # Show example config format");
+    println!("  acommit --config acommit.json                    # Use config file with default provider");
+    println!("  acommit --config acommit.json --provider ollama  # Use config file with specific provider");
+    println!("  acommit # Auto-detect acommit.json or use ACOMMIT_CONFIG env var or default Ollama");
+    println!("  acommit --ollama-url http://localhost:11434       # Use local Ollama");
+    println!("  acommit --openai http://localhost:8080/v1 --model bitnet-model # Use OpenAI-compatible API");
+    println!("  acommit --openai http://api.openai.com/v1 --openai-key sk-xxx --model gpt-4 # Use OpenAI with API key");
+    println!("  acommit --model llama3.2:3b                       # Specify model");
+    println!("  acommit --gemini-key xyz --model gemini-2.5-flash # Use Gemini with specific key");
+    println!("  acommit -ou http://server:11434 -m codellama:7b   # Remote Ollama with CodeLlama");
+    println!("  acommit --verbose --openai http://localhost:8080/v1 # Show debug info");
+    println!();
+    println!("Environment Variables:");
+    println!("  ACOMMIT_CONFIG              Path to default config file");
+    println!("  GEMINI_API_KEY              Used as fallback if no provider specified");
+    println!("  OPENAI_API_KEY              Used for OpenAI-compatible APIs when --openai-key not provided");
+    println!();
     println!("Config File Format (JSON):");
     println!("  {{");
     println!("    \"default_provider\": \"openai\",");
@@ -708,25 +727,6 @@ fn print_usage() {
     println!("  --openai-key, -ok <KEY>     API key for OpenAI-compatible API (optional)");
     println!("  --model, -m <MODEL>         Model name to use");
     println!("  --verbose                   Show debug information");
-    println!();
-    println!("Examples:");
-    println!("  acommit --setup                                 # Interactive setup and generate acommit.json");
-    println!("  acommit --example-config                         # Show example config format");
-    println!("  acommit --config acommit.json                    # Use config file with default provider");
-    println!("  acommit --config acommit.json --provider ollama  # Use config file with specific provider");
-    println!("  acommit # Auto-detect acommit.json or use ACOMMIT_CONFIG env var or default Ollama");
-    println!("  acommit --ollama-url http://localhost:11434       # Use local Ollama");
-    println!("  acommit --openai http://localhost:8080/v1 --model bitnet-model # Use OpenAI-compatible API");
-    println!("  acommit --openai http://api.openai.com/v1 --openai-key sk-xxx --model gpt-4 # Use OpenAI with API key");
-    println!("  acommit --model llama3.2:3b                       # Specify model");
-    println!("  acommit --gemini-key xyz --model gemini-2.5-flash # Use Gemini with specific key");
-    println!("  acommit -ou http://server:11434 -m codellama:7b   # Remote Ollama with CodeLlama");
-    println!("  acommit --verbose --openai http://localhost:8080/v1 # Show debug info");
-    println!();
-    println!("Environment Variables:");
-    println!("  ACOMMIT_CONFIG              Path to default config file");
-    println!("  GEMINI_API_KEY              Used as fallback if no provider specified");
-    println!("  OPENAI_API_KEY              Used for OpenAI-compatible APIs when --openai-key not provided");
     println!();
     println!("For example configuration, use: acommit --example-config");
 }
