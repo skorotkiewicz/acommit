@@ -3,6 +3,7 @@ use std::process::Command;
 use std::io::{self, Write};
 use std::fs;
 use serde::{Deserialize, Serialize};
+use dialoguer::{Select, Input, Confirm};
 
 #[derive(Debug, Clone)]
 enum ModelProvider {
@@ -11,7 +12,7 @@ enum ModelProvider {
     OpenAI { base_url: String, api_key: Option<String>, model: String },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ProviderConfig {
     model: String,
     #[serde(default)]
@@ -20,7 +21,7 @@ struct ProviderConfig {
     url: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct Config {
     default_provider: String,
     #[serde(default)]
@@ -279,6 +280,9 @@ fn parse_args() -> Result<(ModelProvider, bool), Box<dyn std::error::Error>> {
         } else if arg == "--example-config" {
             print_example_config();
             std::process::exit(0);
+        } else if arg == "--setup" {
+            setup_config()?;
+            std::process::exit(0);
         }
     }
     
@@ -308,6 +312,10 @@ fn parse_args() -> Result<(ModelProvider, bool), Box<dyn std::error::Error>> {
         return config_to_provider(&config, selected_provider);
     } else if let Ok(path) = env::var("ACOMMIT_CONFIG") {
         let config = load_config(&path)?;
+        return config_to_provider(&config, selected_provider);
+    } else if fs::metadata("acommit.json").is_ok() {
+        // Auto-detect local acommit.json
+        let config = load_config("acommit.json")?;
         return config_to_provider(&config, selected_provider);
     }
     
@@ -557,6 +565,114 @@ async fn call_openai_api(base_url: &str, api_key: Option<&String>, model: &str, 
     Ok(clean_message)
 }
 
+fn setup_config() -> Result<(), Box<dyn std::error::Error>> {
+    println!("🎯 Welcome to acommit setup!");
+    println!();
+    
+    // Select default provider
+    let providers = vec!["Gemini", "Ollama", "OpenAI"];
+    let default_provider_selection = Select::new()
+        .with_prompt("Choose your default AI provider")
+        .items(&providers)
+        .interact()?;
+    
+    let verbose = Confirm::new()
+        .with_prompt("Enable verbose mode by default?")
+        .default(false)
+        .interact()?;
+    
+    // Configure all providers
+    let mut config = Config {
+        default_provider: match default_provider_selection {
+            0 => "gemini".to_string(),
+            1 => "ollama".to_string(),
+            2 => "openai".to_string(),
+            _ => return Err("Invalid provider selection".into()),
+        },
+        verbose,
+        gemini: ProviderConfig {
+            model: "gemini-2.5-flash-lite".to_string(),
+            api_key: None,
+            url: None,
+        },
+        ollama: ProviderConfig {
+            model: "llama3.2:3b".to_string(),
+            api_key: None,
+            url: Some("http://localhost:11434".to_string()),
+        },
+        openai: ProviderConfig {
+            model: "bitnet-model".to_string(),
+            api_key: None,
+            url: Some("http://localhost:7777/v1".to_string()),
+        },
+    };
+    
+    // Configure Gemini
+    println!("\n📝 Configuring Gemini:");
+    let gemini_model: String = Input::new()
+        .with_prompt("Gemini model name")
+        .default("gemini-2.5-flash-lite".to_string())
+        .interact_text()?;
+    config.gemini.model = gemini_model;
+    
+    if Confirm::new()
+        .with_prompt("Do you want to set Gemini API key in config?")
+        .default(false)
+        .interact()? {
+        let api_key: String = Input::new()
+            .with_prompt("Enter Gemini API key")
+            .interact_text()?;
+        config.gemini.api_key = Some(api_key);
+    }
+    
+    // Configure Ollama
+    println!("\n📝 Configuring Ollama:");
+    let ollama_url: String = Input::new()
+        .with_prompt("Ollama URL")
+        .default("http://localhost:11434".to_string())
+        .interact_text()?;
+    config.ollama.url = Some(ollama_url);
+    
+    let ollama_model: String = Input::new()
+        .with_prompt("Ollama model name")
+        .default("llama3.2:3b".to_string())
+        .interact_text()?;
+    config.ollama.model = ollama_model;
+    
+    // Configure OpenAI
+    println!("\n📝 Configuring OpenAI:");
+    let openai_url: String = Input::new()
+        .with_prompt("OpenAI-compatible API URL")
+        .default("http://localhost:7777/v1".to_string())
+        .interact_text()?;
+    config.openai.url = Some(openai_url);
+    
+    let openai_model: String = Input::new()
+        .with_prompt("OpenAI model name")
+        .default("bitnet-model".to_string())
+        .interact_text()?;
+    config.openai.model = openai_model;
+    
+    if Confirm::new()
+        .with_prompt("Do you want to set OpenAI API key in config?")
+        .default(false)
+        .interact()? {
+        let api_key: String = Input::new()
+            .with_prompt("Enter OpenAI API key")
+            .interact_text()?;
+        config.openai.api_key = Some(api_key);
+    }
+    
+    // Generate config file
+    let config_json = serde_json::to_string_pretty(&config)?;
+    fs::write("acommit.json", config_json)?;
+    
+    println!("\n✅ Configuration saved to acommit.json!");
+    println!("You can now run: acommit");
+    
+    Ok(())
+}
+
 fn print_example_config() {
     println!("Config File Format (JSON):");
     println!("  {{");
@@ -584,6 +700,7 @@ fn print_usage() {
     println!("OPTIONS:");
     println!("  --config <PATH>             Use configuration from JSON file");
     println!("  --provider <PROVIDER>      Override default provider (gemini, ollama, openai)");
+    println!("  --setup                     Interactive setup and generate acommit.json");
     println!("  --example-config            Show example configuration file format");
     println!("  --gemini-key, -gk <KEY>     Use Gemini API with provided key");
     println!("  --ollama-url, -ou <URL>     Use Ollama at specified URL");
@@ -593,10 +710,11 @@ fn print_usage() {
     println!("  --verbose                   Show debug information");
     println!();
     println!("Examples:");
+    println!("  acommit --setup                                 # Interactive setup and generate acommit.json");
     println!("  acommit --example-config                         # Show example config format");
     println!("  acommit --config acommit.json                    # Use config file with default provider");
     println!("  acommit --config acommit.json --provider ollama  # Use config file with specific provider");
-    println!("  acommit # Use ACOMMIT_CONFIG env var or default Ollama");
+    println!("  acommit # Auto-detect acommit.json or use ACOMMIT_CONFIG env var or default Ollama");
     println!("  acommit --ollama-url http://localhost:11434       # Use local Ollama");
     println!("  acommit --openai http://localhost:8080/v1 --model bitnet-model # Use OpenAI-compatible API");
     println!("  acommit --openai http://api.openai.com/v1 --openai-key sk-xxx --model gpt-4 # Use OpenAI with API key");
